@@ -1,0 +1,78 @@
+global:
+  imagePullPolicy: Always
+  ###vault:
+  ###  host: ip
+  ###  name: vault
+  ###  vaultToken: someToken
+
+
+frontend:
+### В чарте frontend отсутствуют некоторые важные файлы. Поймите какие и опишите их.
+  replicas: 1
+  revisionHistoryLimit: 15
+  strategy:
+    type: Recreate
+  service:
+    port: 80
+  ingress:
+    host: YOUR_STUDENT_HOSTNAME.students-projects.ru # Корректный домен будет указан в задании
+    path: /
+    pathType: Prefix
+  containerPort: 80
+  image: YOUR_DOCKERHUB/sausage-frontend:latest
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "128Mi"
+      cpu: "1"
+  nginxConf: nginx.conf
+
+backend:
+  annotations:
+    path: /actuator/prometheus
+    port: "8080"
+    scrape: "true"
+  env:
+    postgresUri: jdbc:postgresql://postgresql:5432/sausage-store
+    postgresUser: store
+    postgresPassword: storepassword
+    reportPath: /logs/reports
+    logPath: /logs
+  service:
+    port: 8080
+  revisionHistoryLimit: 15
+  replicas: 1
+  strategy:
+  ### Опишите стратегию RollingUpdate для бэкенда
+  image: YOUR_DOCKERHUB/sausage-backend:latest
+  imagePullPolicy: Always
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "1"
+  containerPort: 8080
+  livenessProbe:
+  ### Опишите LivenessProbe для бэкенда
+  vpa:
+  ### Опишите VPA для бэкенда
+
+backend-report:
+### Опишите значения для backend-report
+### Приложение должно использовать стратегию Recreate
+### Приложение использует переменную PORT - порт, на котором оно запустится и DB - Uri-подключение к mongodb. 
+### DB положите в Secret, PORT в ConfigMap
+### Опишите HPA для backend-report
+
+infra:
+  postgresql:
+  ### Опишите необходимые переменные для развертывания PostgresQL в кластере Kubernetes
+  mongodb:
+    env:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: rootpassword
+    containerPort: 27017

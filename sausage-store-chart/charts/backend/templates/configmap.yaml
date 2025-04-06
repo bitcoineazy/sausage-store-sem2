@@ -1,0 +1,12 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-{{ .Chart.Name }}-conf
+data:
+  postgres_uri: {{ .Values.env.postgresUri }}
+  postgres_user: {{ .Values.env.postgresUser }}
+  postgres_password: {{ .Values.env.postgresPassword }}
+  report_path: {{ .Values.env.reportPath }}
+  log_path: {{ .Values.env.logPath }}
+  
