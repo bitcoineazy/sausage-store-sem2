@@ -7,6 +7,8 @@
 - Образы: `noble6/sausage-backend`, `noble6/sausage-frontend`, `noble6/sausage-backend-report` (Docker Hub)
 - Helm-репозиторий: `https://nexus.cloud-services-engineer.education-services.ru/repository/s2705050-sausage-store-sem2` (helm hosted, Allow redeploy)
 
+![Сосисочная](docs/img/site.png)
+
 ## Компоненты
 
 | Компонент | Стек | Хранилище | Kubernetes |
@@ -50,6 +52,8 @@ sausage-store-chart/            # Зонтичный чарт: Chart.yaml, value
 
 ### Helm-чарт
 
+![Структура чарта](docs/img/helm-chart.png)
+
 - Верхнеуровневый `Chart.yaml` с четырьмя зависимостями: `backend`, `backend-report`, `frontend`, `infra`; все параметры вынесены в `values.yaml` (образы, реплики, ресурсы, домен Ingress, строки подключения).
 - Шаблоны используют переменные релиза: `{{ .Release.Name }}`, `{{ .Release.Namespace }}`, `{{ .Chart.AppVersion }}`, рекомендованные лейблы `app.kubernetes.io/*`.
 - `frontend`: добавлены `Chart.yaml` и `Service`; в Ingress указан хост `front-matvey.2sem.students-projects.ru` и TLS-секрет `2sem-students-projects-wildcard-secret`.
@@ -58,26 +62,21 @@ sausage-store-chart/            # Зонтичный чарт: Chart.yaml, value
 - `infra`: PostgreSQL как StatefulSet с `volumeClaimTemplates` (PVC 1 Gi), MongoDB как StatefulSet с PVC 1 Gi и Secret вместо ConfigMap для root-учётки, Job `mongodb-init` (post-install/post-upgrade hook) создаёт пользователя и базу для отчётов (лимит памяти 300 Mi — `mongosh` в 128 Mi не укладывается).
 - У всех контейнеров заданы `resources.requests` и `resources.limits`; суммарно ~0,5 CPU / 0,8 Gi запросов при квоте 2 CPU / 1 Gi.
 
-Проверка: `helm lint ./sausage-store-chart` — без ошибок; `helm list` — `STATUS: deployed`.
+Проверка: `helm lint ./sausage-store-chart` — без ошибок; `helm list` — `STATUS: deployed`; VPA отдаёт рекомендации, HPA считает загрузку CPU, секреты лежат в Vault.
 
-```
-$ kubectl get pods
-mongodb-0                                       1/1  Running
-postgresql-0                                    1/1  Running
-sausage-store-backend-…                         1/1  Running
-sausage-store-backend-report-…                  1/1  Running
-sausage-store-frontend-…                        1/1  Running
-vault-…                                         1/1  Running
-
-$ kubectl describe vpa sausage-store-backend-vpa   # Type: RecommendationProvided, Target: cpu 35m / memory 262144k
-$ kubectl describe hpa sausage-store-backend-report-hpa   # 2% (1m) / 75%, Min 1, Max 2, ScalingActive True
-```
+![Состояние в кластере](docs/img/cluster-state.png)
 
 ### CI/CD (`.github/workflows/deploy.yaml`)
 
 1. `build_and_push_to_docker_hub` — сборка трёх образов, теги `latest` и SHA коммита.
 2. `add_helm_chart_to_nexus` — `helm lint`, `helm package`, загрузка `.tgz` в Nexus (`curl --upload-file` с `NEXUS_HELM_REPO_USER/PASSWORD`).
 3. `deploy_helm_chart_to_kubernetes` — `helm repo add nexus $NEXUS_HELM_REPO`, kubeconfig из секрета `KUBE_CONFIG`, `helm upgrade --install sausage-store nexus/sausage-store --version <версия чарта>` с образами по SHA коммита и `--set global.vault.vaultToken=$VAULT_TOKEN`. `--history-max 2`, потому что каждая ревизия Helm — это Secret, а квота неймспейса на Secret — 10.
+
+![GitHub Actions](docs/img/github-actions.png)
+
+![Чарт в Nexus](docs/img/nexus.png)
+
+Прогоны выполняются по одному (`concurrency`), иначе два пуша подряд упираются в `another operation is in progress` у Helm.
 
 Секреты репозитория: `DOCKER_USER`, `DOCKER_PASSWORD`, `NEXUS_HELM_REPO`, `NEXUS_HELM_REPO_USER`, `NEXUS_HELM_REPO_PASSWORD`, `KUBE_CONFIG`, `VAULT_TOKEN`.
 

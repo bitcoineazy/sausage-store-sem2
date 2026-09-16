@@ -5,6 +5,12 @@ on:
     branches:
       - main
 
+# One deploy at a time: a second push while helm upgrade is running would fail with
+# "another operation (install/upgrade/rollback) is in progress".
+concurrency:
+  group: sausage-store-deploy
+  cancel-in-progress: false
+
 env:
   NEXUS_HELM_REPO: ${{ secrets.NEXUS_HELM_REPO }}
   NEXUS_HELM_REPO_USER: ${{ secrets.NEXUS_HELM_REPO_USER }}
