@@ -50,6 +50,10 @@ sausage-store-chart/            # Зонтичный чарт: Chart.yaml, value
 
 При первом старте в кластере журнал бэкенда: `Successfully applied 4 migrations to schema "public", now at version v004`.
 
+Данные в базах после деплоя: тестовые заказы из миграции (плюс заказы, оформленные через сайт), сводка продаж по дням, запросы отчётов идут по индексам из `V004`, а `backend-report` каждые 5 минут складывает отчёты в MongoDB.
+
+![Данные в PostgreSQL и MongoDB](docs/img/data.png)
+
 ### Helm-чарт
 
 ![Структура чарта](docs/img/helm-chart.png)
