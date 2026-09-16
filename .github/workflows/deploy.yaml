@@ -112,5 +112,6 @@ jobs:
             --set frontend.image="$DOCKER_USER/sausage-frontend:${{ github.sha }}" \
             --set backend-report.image="$DOCKER_USER/sausage-backend-report:${{ github.sha }}" \
             --set global.vault.vaultToken="$VAULT_TOKEN" \
+            --history-max 2 \
             --wait --timeout 10m
           kubectl get pods,svc,ingress -n "$SAUSAGE_STORE_NAMESPACE"
