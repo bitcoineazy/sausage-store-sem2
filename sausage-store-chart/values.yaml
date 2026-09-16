@@ -2,11 +2,12 @@ global:
   imagePullPolicy: Always
   environment: production
   vault:
-    enabled: false
-    host: 127.0.0.1
+    enabled: true
+    host: vault          # Service name inside the namespace
     port: 8200
-    name: vault
-    vaultToken: ""
+    name: vault          # Secret holding vault_token
+    secretPath: sausage-store
+    vaultToken: ""       # passed at deploy time: --set global.vault.vaultToken=$VAULT_TOKEN
 
 frontend:
   replicas: 1
@@ -38,6 +39,8 @@ backend:
     scrape: "true"
   env:
     postgresUri: jdbc:postgresql://postgresql:5432/sausage-store
+    # DB credentials and the MongoDB URI are read from Vault (kv/sausage-store); see infra.vault.secrets.
+    # These two are only used when global.vault.enabled=false (local install without Vault).
     postgresUser: store
     postgresPassword: storepassword
     reportPath: /logs/reports
@@ -83,8 +86,6 @@ backend-report:
     type: Recreate
   image: noble6/sausage-backend-report:latest
   containerPort: 8080
-  service:
-    port: 8080
   config:
     port: "8080"
   secret:
@@ -117,6 +118,22 @@ infra:
       limits:
         memory: "256Mi"
         cpu: "500m"
+  vault:
+    image: hashicorp/vault:1.17
+    port: 8200
+    secretPath: sausage-store
+    # Values written into Vault by the vault-init job; the backend never sees them through Helm.
+    secrets:
+      postgresUser: store
+      postgresPassword: storepassword
+      mongodbUri: mongodb://reports:reportspassword@mongodb:27017/sausage-store
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "50m"
+      limits:
+        memory: "128Mi"
+        cpu: "200m"
   mongodb:
     image: mongo:7.0
     containerPort: 27017

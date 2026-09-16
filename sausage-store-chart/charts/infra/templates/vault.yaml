@@ -1,0 +1,117 @@
+{{- if .Values.global.vault.enabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.global.vault.name }}
+  namespace: {{ .Release.Namespace }}
+type: Opaque
+stringData:
+  vault_token: {{ required "global.vault.vaultToken is required (pass --set global.vault.vaultToken=...)" .Values.global.vault.vaultToken | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vault
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: "{{ .Release.Name }}"
+    app.kubernetes.io/managed-by: "{{ .Release.Service }}"
+    helm.sh/chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+    app.kubernetes.io/component: secrets
+    app.kubernetes.io/part-of: {{ .Release.Name }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: vault
+  template:
+    metadata:
+      labels:
+        app: vault
+    spec:
+      containers:
+        - name: vault
+          image: {{ .Values.vault.image }}
+          args: ["server", "-dev", "-dev-listen-address=0.0.0.0:{{ .Values.vault.port }}"]
+          env:
+            - name: VAULT_DEV_ROOT_TOKEN_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.vault.name }}
+                  key: vault_token
+            - name: VAULT_ADDR
+              value: http://127.0.0.1:{{ .Values.vault.port }}
+          ports:
+            - containerPort: {{ .Values.vault.port }}
+          readinessProbe:
+            httpGet:
+              path: /v1/sys/health
+              port: {{ .Values.vault.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+{{ toYaml .Values.vault.resources | indent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.global.vault.host }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.global.vault.port }}
+      targetPort: {{ .Values.vault.port }}
+  selector:
+    app: vault
+---
+# Seeds the backend secrets into Vault after the instance is up (kv-v2 at path "kv").
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-init
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/hook: "post-install,post-upgrade"
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: "before-hook-creation,hook-succeeded"
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: vault-init
+          image: {{ .Values.vault.image }}
+          env:
+            - name: VAULT_ADDR
+              value: http://{{ .Values.global.vault.host }}:{{ .Values.global.vault.port }}
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.vault.name }}
+                  key: vault_token
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              until vault status >/dev/null 2>&1; do echo "waiting for vault..."; sleep 5; done
+              vault secrets list -format=json | grep -q '"kv/"' || vault secrets enable -path=kv kv-v2
+              vault kv put kv/{{ .Values.vault.secretPath }} \
+                spring.datasource.username={{ .Values.vault.secrets.postgresUser | quote }} \
+                spring.datasource.password={{ .Values.vault.secrets.postgresPassword | quote }} \
+                spring.data.mongodb.uri={{ .Values.vault.secrets.mongodbUri | quote }}
+              vault kv get kv/{{ .Values.vault.secretPath }} >/dev/null && echo "secrets seeded"
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "20m"
+            limits:
+              memory: "64Mi"
+              cpu: "100m"
+{{- end }}

@@ -57,7 +57,7 @@ spec:
             - name: SPRING_CLOUD_VAULT_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Release.Name }}-{{ .Chart.Name }}-secret
+                  name: {{ .Values.global.vault.name }}
                   key: vault_token
             - name: SPRING_CLOUD_VAULT_HOST
               value: {{ .Values.global.vault.host | quote }}
@@ -68,7 +68,7 @@ spec:
             - name: SPRING_CLOUD_VAULT_KV_ENABLED
               value: "true"
             - name: SPRING_CONFIG_IMPORT
-              value: vault://kv/sausage-store
+              value: vault://kv/{{ .Values.global.vault.secretPath }}
 {{- end }}
             - name: REPORT_PATH
               valueFrom:
