@@ -54,8 +54,8 @@ sausage-store-chart/            # Зонтичный чарт: Chart.yaml, value
 - Шаблоны используют переменные релиза: `{{ .Release.Name }}`, `{{ .Release.Namespace }}`, `{{ .Chart.AppVersion }}`, рекомендованные лейблы `app.kubernetes.io/*`.
 - `frontend`: добавлены `Chart.yaml` и `Service`; в Ingress указан хост `front-matvey.2sem.students-projects.ru` и TLS-секрет `2sem-students-projects-wildcard-secret`.
 - `backend`: стратегия `RollingUpdate` (`maxSurge: 1`, `maxUnavailable: 0`), `LivenessProbe` на `/actuator/health:8080`, VPA в режиме `Off` (только рекомендации по CPU и памяти).
-- `backend-report`: `PORT` в ConfigMap, `DB` (URI MongoDB) в Secret, стратегия `Recreate`, HPA по CPU (1–2 реплики, цель 75 %).
-- `infra`: PostgreSQL как StatefulSet с `volumeClaimTemplates` (PVC 1 Gi), MongoDB как StatefulSet с PVC 1 Gi и Secret вместо ConfigMap для root-учётки, Job `mongodb-init` (post-install/post-upgrade hook) создаёт пользователя и базу для отчётов.
+- `backend-report`: `PORT` в ConfigMap, `DB` (URI MongoDB) в Secret, стратегия `Recreate`, HPA по CPU (1–2 реплики, цель 75 %). Service не создаётся: к сервису отчётов никто не обращается, а квота неймспейса на Service (5) занята остальными компонентами.
+- `infra`: PostgreSQL как StatefulSet с `volumeClaimTemplates` (PVC 1 Gi), MongoDB как StatefulSet с PVC 1 Gi и Secret вместо ConfigMap для root-учётки, Job `mongodb-init` (post-install/post-upgrade hook) создаёт пользователя и базу для отчётов (лимит памяти 300 Mi — `mongosh` в 128 Mi не укладывается).
 - У всех контейнеров заданы `resources.requests` и `resources.limits`; суммарно ~0,5 CPU / 0,8 Gi запросов при квоте 2 CPU / 1 Gi.
 
 Проверка: `helm lint ./sausage-store-chart` — без ошибок; `helm list` — `STATUS: deployed`.
@@ -83,7 +83,7 @@ $ kubectl describe hpa sausage-store-backend-report-hpa   # 2% (1m) / 75%, Min 1
 
 ## Задание повышенной сложности — Vault
 
-- В чарте `infra` разворачивается Vault (`hashicorp/vault:1.17`, dev-режим — сервер стартует уже распечатанным; root-токен берётся из Secret `vault`, который создаётся из `global.vault.vaultToken`). При старте контейнер включает kv-v2 по пути `kv` и кладёт в `kv/sausage-store` ключи `spring.datasource.username`, `spring.datasource.password`, `spring.data.mongodb.uri`.
+- Vault развёрнут в том же неймспейсе как часть чарта `infra` (`hashicorp/vault:1.17`, dev-режим — сервер стартует уже распечатанным; root-токен берётся из Secret `vault`, который создаётся из `global.vault.vaultToken`). Так весь стек ставится одной командой `helm install`. При старте контейнер включает kv-v2 по пути `kv` и кладёт в `kv/sausage-store` ключи `spring.datasource.username`, `spring.datasource.password`, `spring.data.mongodb.uri` — секреты записываются самим контейнером, а не отдельной Job, потому что бэкенду они нужны уже при первом запуске.
 - В `pom.xml` уже была зависимость `spring-cloud-vault-config`; в `application.properties` добавлены `spring.cloud.vault.scheme`, `spring.cloud.vault.host`, `spring.cloud.vault.port`, `spring.cloud.vault.token`, `spring.cloud.vault.kv.enabled` и `spring.config.import=vault://kv/sausage-store`; логин, пароль и URI MongoDB из файла удалены.
 - Из Helm-шаблонов бэкенда убран Secret с учётными данными; в контейнер передаются только `SPRING_CLOUD_VAULT_HOST`, `SPRING_CLOUD_VAULT_PORT` и `SPRING_CLOUD_VAULT_TOKEN` (из Secret `vault`). Токен на уровне деплоя: `helm upgrade … --set global.vault.vaultToken=${VAULT_TOKEN}`.
 - Проверка: в поде бэкенда нет переменных `SPRING_DATASOURCE_USERNAME/PASSWORD`, приложение стартует, `/actuator/health` → `UP`, витрина отдаёт товары, заказ создаётся.
@@ -102,15 +102,3 @@ helm upgrade --install sausage-store ./sausage-store-chart \
   --namespace <namespace> \
   --set global.vault.vaultToken=<любой токен для dev-Vault>
 ```
-
-## С чем столкнулся
-
-**Шаблон устарел сильнее, чем казалось.** Базовый образ бэкенда `openjdk:16-jdk-alpine` уже удалён с Docker Hub, а пин `dumb-init==1.2.5-r0` не существует в текущем Alpine. Перешёл на `eclipse-temurin:16-jdk-alpine` и убрал жёсткую версию пакета. Фронтенд в production-режиме не собирался вовсе: AOT-компилятор Angular не даёт шаблону обращаться к приватному полю компонента (`collapsed`), в dev-режиме это проходит незамеченным. Поле стало публичным.
-
-**Spring Cloud Vault включён по умолчанию.** Стоило собрать бэкенд, как он отказался стартовать: зависимость `spring-cloud-vault-config` уже была в `pom.xml`, и без токена приложение падало на инициализации health-индикатора. Сначала это выглядело как лишняя проблема, потом стало основой для задания повышенной сложности — адрес и токен Vault теперь приходят из окружения.
-
-**Job инициализации MongoDB умирала молча.** Под падал, Helm ждал, логов не оставалось. Оказалось, `mongosh` — это Node.js, и в 128 Mi он не помещается: `OOMKilled`. Поднял лимит до 300 Mi. Пока разбирался, обратил внимание, что liveness-проба бэкенда честно перезапускала его: `/actuator/health` отдавал 503, потому что health-индикатор MongoDB не мог авторизоваться тем самым несозданным пользователем.
-
-**Квоты неймспейса считают не только поды.** При добавлении Vault деплой упёрся сначала в лимит на Service (5), потом на Secret (10). Service у `backend-report` оказался лишним — к нему никто не обращается, HPA он тоже не нужен. А вот с Secret интереснее: Helm хранит каждую ревизию релиза как Secret, и после нескольких деплоев они заняли половину квоты. Отсюда `--history-max 2` в пайплайне.
-
-**Порядок хуков важен.** Первая версия засевала секреты в Vault отдельной Job с хуком `post-upgrade`. Но `helm upgrade --wait` считает релиз готовым только когда бэкенд поднялся, а бэкенд не поднимется, пока в Vault нет секретов — хук никогда не выполнится. Переписал так, чтобы контейнер Vault сам записывал секреты сразу после старта; никакой зависимости от хуков не осталось.
