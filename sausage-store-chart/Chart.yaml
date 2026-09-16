@@ -4,7 +4,7 @@ type: application
 name: sausage-store
 description: Sausage Store Helm Chart
 
-version: 0.1.0
+version: 0.1.1
 appVersion: "latest"
 
 dependencies:

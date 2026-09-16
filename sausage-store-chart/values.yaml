@@ -21,7 +21,7 @@ frontend:
     pathType: Prefix
     tlsSecretName: 2sem-students-projects-wildcard-secret
   containerPort: 80
-  image: DOCKERHUB_USER/sausage-frontend:latest
+  image: noble6/sausage-frontend:latest
   resources:
     requests:
       memory: "64Mi"
@@ -51,7 +51,7 @@ backend:
     rollingUpdate:
       maxSurge: 1
       maxUnavailable: 0
-  image: DOCKERHUB_USER/sausage-backend:latest
+  image: noble6/sausage-backend:latest
   resources:
     requests:
       memory: "256Mi"
@@ -81,7 +81,7 @@ backend-report:
   revisionHistoryLimit: 15
   strategy:
     type: Recreate
-  image: DOCKERHUB_USER/sausage-backend-report:latest
+  image: noble6/sausage-backend-report:latest
   containerPort: 8080
   service:
     port: 8080
@@ -135,3 +135,12 @@ infra:
       database: sausage-store
       username: reports
       password: reportspassword
+    initJob:
+      # mongosh is a Node.js process: 128Mi gets OOM-killed
+      resources:
+        requests:
+          memory: "128Mi"
+          cpu: "50m"
+        limits:
+          memory: "300Mi"
+          cpu: "300m"
