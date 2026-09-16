@@ -5,6 +5,4 @@ metadata:
   name: {{ .Release.Name }}-{{ .Chart.Name }}-conf
   namespace: {{ .Release.Namespace }}
 data:
-  postgres_uri: {{ .Values.env.postgresUri }}
-  report_path: {{ .Values.env.reportPath }}
-  log_path: {{ .Values.env.logPath }}
+  PORT: {{ .Values.config.port | quote }}

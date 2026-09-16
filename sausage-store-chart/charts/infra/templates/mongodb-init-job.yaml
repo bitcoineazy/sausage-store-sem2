@@ -1,0 +1,58 @@
+---
+# Creates the reports database user in MongoDB once the instance is up.
+# Runs as a Helm hook after install/upgrade; idempotent (skips if the user exists).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-mongodb-init
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    helm.sh/hook: "post-install,post-upgrade"
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: "before-hook-creation,hook-succeeded"
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 900
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mongodb-init
+          image: {{ .Values.mongodb.image }}
+          envFrom:
+            - secretRef:
+                name: mongodb-secret
+          env:
+            - name: REPORTS_DB
+              value: {{ .Values.mongodb.reportsUser.database | quote }}
+            - name: REPORTS_USER
+              value: {{ .Values.mongodb.reportsUser.username | quote }}
+            - name: REPORTS_PASSWORD
+              value: {{ .Values.mongodb.reportsUser.password | quote }}
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              until mongosh --quiet --host mongodb:{{ .Values.mongodb.containerPort }} \
+                    -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" \
+                    --authenticationDatabase admin --eval 'db.runCommand({ ping: 1 })' >/dev/null 2>&1; do
+                echo "waiting for mongodb..."; sleep 5
+              done
+              mongosh --quiet --host mongodb:{{ .Values.mongodb.containerPort }} \
+                -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" \
+                --authenticationDatabase admin --eval '
+                  const d = db.getSiblingDB(process.env.REPORTS_DB);
+                  if (d.getUser(process.env.REPORTS_USER)) {
+                    print("user already exists");
+                  } else {
+                    d.createUser({ user: process.env.REPORTS_USER, pwd: process.env.REPORTS_PASSWORD,
+                                   roles: [{ role: "readWrite", db: process.env.REPORTS_DB }] });
+                    print("user created");
+                  }'
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"

@@ -1,9 +1,26 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mongodb-secret
+  namespace: {{ .Release.Namespace }}
+type: Opaque
+stringData:
+  MONGO_INITDB_ROOT_USERNAME: {{ .Values.mongodb.env.MONGO_INITDB_ROOT_USERNAME | quote }}
+  MONGO_INITDB_ROOT_PASSWORD: {{ .Values.mongodb.env.MONGO_INITDB_ROOT_PASSWORD | quote }}
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: mongodb
-  annotations:
-    helm.sh/hook-weight: "-5"
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: mongodb
+    app.kubernetes.io/instance: "{{ .Release.Name }}"
+    app.kubernetes.io/managed-by: "{{ .Release.Service }}"
+    helm.sh/chart: "{{ .Chart.Name }}-{{ .Chart.Version }}"
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: {{ .Release.Name }}
 spec:
   serviceName: mongodb
   replicas: 1
@@ -17,18 +34,14 @@ spec:
     spec:
       containers:
       - name: mongodb
-        image: mongo:7.0
+        image: {{ .Values.mongodb.image }}
         envFrom:
-          - configMapRef:
-              name: mongodb-conf
+          - secretRef:
+              name: mongodb-secret
         ports:
         - containerPort: {{ .Values.mongodb.containerPort }}
         resources:
-          requests:
-            memory: "128Mi"
-            cpu: "50m"
-          limits:
-            memory: "256Mi"
+{{ toYaml .Values.mongodb.resources | indent 10 }}
         volumeMounts:
         - name: mongodb-data
           mountPath: /data/db
@@ -39,12 +52,13 @@ spec:
       accessModes: [ "ReadWriteOnce" ]
       resources:
         requests:
-          storage: 1Gi
+          storage: {{ .Values.mongodb.storage }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: mongodb
+  namespace: {{ .Release.Namespace }}
   labels:
     app: mongodb
 spec:
@@ -54,11 +68,3 @@ spec:
   selector:
     app: mongodb
   clusterIP: None
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: mongodb-conf
-data:
-  MONGO_INITDB_ROOT_USERNAME: {{ .Values.mongodb.env.MONGO_INITDB_ROOT_USERNAME }}
-  MONGO_INITDB_ROOT_PASSWORD: {{ .Values.mongodb.env.MONGO_INITDB_ROOT_PASSWORD }}
