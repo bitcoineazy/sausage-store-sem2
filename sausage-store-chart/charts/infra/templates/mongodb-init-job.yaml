@@ -4,7 +4,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ .Release.Name }}-mongodb-init
+  name: mongodb-init
   namespace: {{ .Release.Namespace }}
   annotations:
     helm.sh/hook: "post-install,post-upgrade"

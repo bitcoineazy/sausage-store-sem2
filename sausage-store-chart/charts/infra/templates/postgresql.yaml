@@ -10,19 +10,8 @@ stringData:
   POSTGRES_USER: {{ .Values.postgresql.env.POSTGRES_USER | quote }}
   POSTGRES_PASSWORD: {{ .Values.postgresql.env.POSTGRES_PASSWORD | quote }}
 ---
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: postgresql-data
-  namespace: {{ .Release.Namespace }}
-spec:
-  accessModes: [ "ReadWriteOnce" ]
-  resources:
-    requests:
-      storage: {{ .Values.postgresql.storage }}
----
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: postgresql
   namespace: {{ .Release.Namespace }}
@@ -34,9 +23,8 @@ metadata:
     app.kubernetes.io/component: database
     app.kubernetes.io/part-of: {{ .Release.Name }}
 spec:
+  serviceName: postgresql
   replicas: 1
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       app: postgresql
@@ -66,10 +54,14 @@ spec:
           volumeMounts:
             - name: postgresql-data
               mountPath: /var/lib/postgresql/data
-      volumes:
-        - name: postgresql-data
-          persistentVolumeClaim:
-            claimName: postgresql-data
+  volumeClaimTemplates:
+    - metadata:
+        name: postgresql-data
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: {{ .Values.postgresql.storage }}
 ---
 apiVersion: v1
 kind: Service
